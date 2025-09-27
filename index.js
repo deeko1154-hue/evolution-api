@@ -1,42 +1,61 @@
-// index.js
-import makeWASocket from '@adiwajshing/baileys';
-import useSingleFileAuthState from './useSingleFileAuthState.js'; // função que criamos
+import pkg from '@adiwajshing/baileys';
 import P from 'pino';
+import fs from 'fs';
 
+const { default: makeWASocket, DisconnectReason, useSingleFileAuthState } = pkg;
+
+// Caminho do arquivo de autenticação
 const authFile = './auth_info.json';
+
+// Cria/usa o estado de autenticação
 const { state, saveState } = useSingleFileAuthState(authFile);
 
-// Cria o socket
-const sock = makeWASocket({
-    auth: state,
-    printQRInTerminal: true,
-    logger: P({ level: 'silent' }) // reduz logs
-});
+let sock;
 
-// Evento de atualização da conexão
-sock.ev.on('connection.update', (update) => {
-    const { connection, lastDisconnect } = update;
+async function startBot() {
+    sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: true,
+        logger: P({ level: 'silent' })
+    });
 
-    if (connection === 'close') {
-        console.log('❌ Desconectado, motivo:', lastDisconnect?.error?.output?.statusCode);
-    } else if (connection === 'open') {
-        console.log('✅ Conectado ao WhatsApp!');
-    }
-});
+    // Evento de atualização de conexão
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
 
-// Evento para salvar credenciais
-sock.ev.on('creds.update', saveState);
+        if (qr) console.log('📸 Escaneie o QR Code acima no terminal!');
+        if (connection === 'close') {
+            console.log('❌ Desconectado:', lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error);
+            console.log('🔄 Tentando reconectar em 5s...');
+            setTimeout(startBot, 5000);
+        } else if (connection === 'open') {
+            console.log('✅ Conectado ao WhatsApp!');
+        }
+    });
 
-// Evento para mensagens recebidas (exemplo)
-sock.ev.on('messages.upsert', async (m) => {
-    console.log('📩 Nova mensagem:', JSON.stringify(m, null, 2));
+    // Atualiza estado de autenticação
+    sock.ev.on('creds.update', saveState);
 
-    // Exemplo de resposta automática
-    if (m.messages[0].message?.conversation) {
+    // Recebimento de mensagens
+    sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
-        const from = msg.key.remoteJid;
-        await sock.sendMessage(from, { text: 'Olá! Recebi sua mensagem 😄' });
-    }
-});
+        if (!msg.message) return;
 
-console.log('🤖 Bot iniciado. Escaneie o QR Code no terminal.');
+        const from = msg.key.remoteJid;
+        const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
+
+        console.log('📩 Mensagem de', from, ':', text);
+
+        // Resposta automática simples
+        if (text?.toLowerCase().includes('oi')) {
+            await sock.sendMessage(from, { text: 'Olá! Recebi sua mensagem 😄' });
+        }
+    });
+
+    console.log('🤖 Bot iniciado. Escaneie o QR Code no terminal se necessário.');
+}
+
+// Verifica se o arquivo de autenticação existe, se não cria vazio
+if (!fs.existsSync(authFile)) fs.writeFileSync(authFile, JSON.stringify({}));
+
+startBot();
