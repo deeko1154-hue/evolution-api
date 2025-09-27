@@ -1,67 +1,63 @@
-import express from 'express';
-import BaileysPkg from '@adiwajshing/baileys';
+// index.js
+import pkg from '@adiwajshing/baileys';
 import fs from 'fs';
 import path from 'path';
 
-const {
-  default: makeWASocket,
-  useSingleFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  makeInMemoryStore
-} = BaileysPkg;
-
 const __dirname = path.resolve();
 
-const app = express();
-const port = process.env.PORT || 3000;
+// Pega as funções necessárias do pacote
+const {
+    default: makeWASocket,
+    useSingleFileAuthState,
+    fetchLatestBaileysVersion,
+    DisconnectReason,
+    delay
+} = pkg;
 
-// Pasta para salvar o estado de autenticação
+// Caminho do arquivo de autenticação
 const authFile = path.join(__dirname, 'auth_info.json');
 const { state, saveState } = useSingleFileAuthState(authFile);
 
-let sock;
+// Função principal
+async function startSock() {
+    try {
+        const { version } = await fetchLatestBaileysVersion();
+        
+        const sock = makeWASocket({
+            auth: state,
+            version,
+            printQRInTerminal: true,  // QR aparece no terminal
+            browser: ['EvolutionBot','Chrome','1.0.0']
+        });
 
-// Função para inicializar o WhatsApp
-async function startWhatsApp() {
-  const { version } = await fetchLatestBaileysVersion();
+        // Salva a sessão quando houver alteração
+        sock.ev.on('creds.update', saveState);
 
-  sock = makeWASocket({
-    auth: state,
-    version,
-    printQRInTerminal: true
-  });
+        // Detecta desconexões
+        sock.ev.on('connection.update', (update) => {
+            const { connection, lastDisconnect } = update;
+            if(connection === 'close') {
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
+                console.log('Desconectado, tentando reconectar...', statusCode);
+                // Reconecta automaticamente
+                if(statusCode !== DisconnectReason.loggedOut) {
+                    startSock();
+                }
+            } else if(connection === 'open') {
+                console.log('✅ Conectado ao WhatsApp!');
+            }
+        });
 
-  sock.ev.on('creds.update', saveState);
+        // Evento de mensagens recebidas
+        sock.ev.on('messages.upsert', async (m) => {
+            console.log('Mensagem recebida:', m);
+        });
 
-  sock.ev.on('connection.update', (update) => {
-    const { connection, lastDisconnect, qr } = update;
-
-    if (qr) {
-      console.log('QR Code gerado. Escaneie com o WhatsApp!');
+    } catch (err) {
+        console.log('Erro na inicialização:', err);
+        setTimeout(startSock, 5000); // tenta reiniciar em 5s
     }
-
-    if (connection === 'close') {
-      const reason = lastDisconnect?.error?.output?.statusCode;
-      console.log('Conexão fechada, tentando reconectar...', reason);
-      startWhatsApp(); // tenta reconectar automaticamente
-    }
-
-    if (connection === 'open') {
-      console.log('WhatsApp conectado com sucesso!');
-    }
-  });
 }
 
-startWhatsApp().catch(console.error);
-
-// Endpoint para ver status do WhatsApp
-app.get('/status', (req, res) => {
-  if (!sock) return res.send('Aguardando conexão do WhatsApp...');
-  res.send('WhatsApp conectado! ✅');
-});
-
-// Servidor rodando
-app.listen(port, () => {
-  console.log(`Servidor rodando na porta ${port}`);
-});
+// Inicia o socket
+startSock();
