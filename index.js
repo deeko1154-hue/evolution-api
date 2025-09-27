@@ -1,44 +1,42 @@
-import pkg from '@adiwajshing/baileys';
-import fs from 'fs';
-import path from 'path';
+// index.js
+import makeWASocket from '@adiwajshing/baileys';
+import useSingleFileAuthState from './useSingleFileAuthState.js'; // função que criamos
+import P from 'pino';
 
-const __dirname = path.resolve();
-
-// Pega tudo do pacote
-const makeWASocket = pkg.default;
-const { useSingleFileAuthState, fetchLatestBaileysVersion, DisconnectReason } = pkg;
-
-// Caminho do arquivo de autenticação
-const authFile = path.join(__dirname, 'auth_info.json');
+const authFile = './auth_info.json';
 const { state, saveState } = useSingleFileAuthState(authFile);
 
-// Função principal
-async function startSock() {
-    const { version } = await fetchLatestBaileysVersion();
-    
-    const sock = makeWASocket({
-        auth: state,
-        version,
-        printQRInTerminal: true,
-        browser: ['EvolutionBot','Chrome','1.0.0']
-    });
+// Cria o socket
+const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: true,
+    logger: P({ level: 'silent' }) // reduz logs
+});
 
-    sock.ev.on('creds.update', saveState);
+// Evento de atualização da conexão
+sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect } = update;
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if(connection === 'close') {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            console.log('Desconectado, tentando reconectar...', statusCode);
-            if(statusCode !== DisconnectReason.loggedOut) startSock();
-        } else if(connection === 'open') {
-            console.log('✅ Conectado ao WhatsApp!');
-        }
-    });
+    if (connection === 'close') {
+        console.log('❌ Desconectado, motivo:', lastDisconnect?.error?.output?.statusCode);
+    } else if (connection === 'open') {
+        console.log('✅ Conectado ao WhatsApp!');
+    }
+});
 
-    sock.ev.on('messages.upsert', (m) => {
-        console.log('Mensagem recebida:', m);
-    });
-}
+// Evento para salvar credenciais
+sock.ev.on('creds.update', saveState);
 
-startSock();
+// Evento para mensagens recebidas (exemplo)
+sock.ev.on('messages.upsert', async (m) => {
+    console.log('📩 Nova mensagem:', JSON.stringify(m, null, 2));
+
+    // Exemplo de resposta automática
+    if (m.messages[0].message?.conversation) {
+        const msg = m.messages[0];
+        const from = msg.key.remoteJid;
+        await sock.sendMessage(from, { text: 'Olá! Recebi sua mensagem 😄' });
+    }
+});
+
+console.log('🤖 Bot iniciado. Escaneie o QR Code no terminal.');
