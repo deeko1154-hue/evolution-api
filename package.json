@@ -1,10 +1,27 @@
 {
   "name": "evolution-api",
   "version": "1.0.0",
+  "description": "Servidor Evolution API para WhatsApp com Venom-bot",
   "type": "module",
-  "scripts": { "start": "node index.js" },
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
     "express": "^4.18.2",
-    "venom-bot": "^4.0.0"
-  }
+    "venom-bot": "^4.0.0",
+    "puppeteer": "^21.3.8"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "whatsapp",
+    "venom-bot",
+    "evolution",
+    "render",
+    "api"
+  ],
+  "author": "Seu Nome",
+  "license": "MIT"
 }
